@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Moon, Sun, Globe, Bell, Menu, X, Bus } from 'lucide-react';
 import RoutePlanner from './components/RoutePlanner';
 import CommunityFeed from './components/CommunityFeed';
+import RedBusExtras from './components/RedBusExtras';
 
 // --- TASK 3: i18n Dictionary ---
 const translations = {
@@ -57,13 +58,12 @@ export default function App() {
 
   return (
     <AppContext.Provider value={{ lang, setLang, t, isDark, toggleTheme }}>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
+      <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
         
         {/* Navigation Bar */}
         <nav className="bg-red-600 dark:bg-red-800 text-white shadow-lg sticky top-0 z-50">
           <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
             
-            {/* Replaced emoji with robust Lucide React Icon */}
             <div className="text-2xl font-black tracking-tight flex items-center gap-2">
               <Bus size={28} />
               <span>{t('brand')}</span>
@@ -124,7 +124,7 @@ export default function App() {
         </nav>
 
         {/* Dynamic Tabs */}
-        <div className="flex justify-center gap-4 p-4">
+        <div className="flex justify-center gap-4 p-4 mt-4">
           <button 
             onClick={() => setActiveTab('planner')}
             className={`px-6 py-2 rounded-full font-bold transition-all ${activeTab === 'planner' ? 'bg-red-600 text-white shadow-md' : 'bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-700'}`}
@@ -139,8 +139,8 @@ export default function App() {
           </button>
         </div>
 
-        {/* Main Content Area */}
-        <main className="max-w-7xl mx-auto p-4">
+        {/* Main Content Area (Your Custom Tasks) */}
+        <main className="max-w-7xl mx-auto p-4 flex-grow w-full">
           <AnimatePresence mode="wait">
             {activeTab === 'planner' ? (
               <motion.div key="planner" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
@@ -153,6 +153,10 @@ export default function App() {
             )}
           </AnimatePresence>
         </main>
+
+        {/* The Original RedBus Website Features */}
+        <RedBusExtras />
+
       </div>
     </AppContext.Provider>
   );
