@@ -138,7 +138,7 @@ export default function RedBusExtras() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto px-4 mt-8 pt-8 border-t border-gray-800 text-center text-gray-500">
-          © 2026 RedBus Pro Training Project. All rights reserved.
+          © 2026 OBED GANTA . All rights reserved.
         </div>
       </footer>
     </div>
