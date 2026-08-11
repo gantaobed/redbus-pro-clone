@@ -1,15 +1,8 @@
-import { useContext, useState } from 'react';
+import { useContext, useState, useEffect } from 'react';
 import { AppContext } from '../App';
 import { MapContainer, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Plus, Navigation, AlertTriangle, Bus, Armchair, CreditCard, CheckCircle2 } from 'lucide-react';
-
-// Mock Data for Buses
-const mockBuses = [
-  { id: 1, operator: 'APSRTC Garuda Plus', time: '21:00 - 06:00', duration: '9h 00m', type: 'A/C Sleeper (2+1)', price: 1500, seatsLeft: 12 },
-  { id: 2, operator: 'AbhiBus Prime', time: '19:00 - 05:30', duration: '10h 30m', type: 'Volvo Multi-Axle A/C', price: 2200, seatsLeft: 4 },
-  { id: 3, operator: 'TSRTC Super Luxury', time: '22:30 - 08:00', duration: '9h 30m', type: 'Non A/C Seater (2+2)', price: 850, seatsLeft: 20 }
-];
+import { MapPin, Plus, Navigation, AlertTriangle, Bus, Armchair, CreditCard, CheckCircle2, Database } from 'lucide-react';
 
 export default function RoutePlanner() {
   const { lang, isDark } = useContext(AppContext);
@@ -18,12 +11,27 @@ export default function RoutePlanner() {
   const [step, setStep] = useState('search'); // search, results, seats, checkout, success
   const [startLoc, setStartLoc] = useState('New Delhi');
   const [endLoc, setEndLoc] = useState('Hyderabad');
+  
+  // Database States
+  const [buses, setBuses] = useState([]); // Stores real DB data
   const [selectedBus, setSelectedBus] = useState(null);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // FETCH BUSES FROM MONGODB
+  const fetchBusesFromDB = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/buses');
+      const data = await res.json();
+      setBuses(data);
+    } catch (err) {
+      console.error("Failed to fetch buses:", err);
+    }
+  };
+
   const handleSearch = () => {
     if (!startLoc || !endLoc) return alert("Please enter locations");
+    fetchBusesFromDB(); // Get live data when searching
     setStep('results');
   };
 
@@ -41,12 +49,43 @@ export default function RoutePlanner() {
     setStep('checkout');
   };
 
-  const processPayment = () => {
+  // SEND BOOKING TRANSACTION TO MONGODB
+  const processPayment = async () => {
     setIsProcessing(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch('http://localhost:5000/api/book-seat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ busId: selectedBus._id, seatNumber: selectedSeat })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setStep('success'); // Seat successfully booked in DB!
+      } else {
+        // Triggered if someone else booked it a second before you did
+        alert("🚨 Booking Failed: " + data.error);
+        setSelectedSeat(null);
+        fetchBusesFromDB(); // Refresh the seats layout
+        setStep('seats');
+      }
+    } catch (err) {
+      alert("Database connection error during payment.");
+    } finally {
       setIsProcessing(false);
-      setStep('success');
-    }, 2000); // Simulate network delay
+    }
+  };
+
+  // ADMIN DEV TOOL: Create a test bus in the database instantly
+  const setupTestDatabase = async () => {
+    try {
+      await fetch('http://localhost:5000/api/setup-test-bus', { method: 'POST' });
+      alert("Test Bus created in MongoDB! Refreshing list...");
+      fetchBusesFromDB();
+    } catch (err) {
+      alert("Failed to create test bus. Is your backend running?");
+    }
   };
 
   const mapUrl = isDark 
@@ -97,40 +136,44 @@ export default function RoutePlanner() {
         </div>
       )}
 
-      {/* STEP 2: BUS RESULTS */}
+      {/* STEP 2: BUS RESULTS FROM MONGODB */}
       {step === 'results' && (
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold flex items-center gap-2"><Bus className="text-red-600" /> Available Buses</h2>
+            <h2 className="text-2xl font-bold flex items-center gap-2"><Bus className="text-red-600" /> Live Database Buses</h2>
             <button onClick={() => setStep('search')} className="text-blue-600 hover:underline">← Back to Search</button>
           </div>
           <p className="text-gray-500 mb-4 font-bold">{startLoc} to {endLoc}</p>
           
-          <div className="space-y-4">
-            {mockBuses.map(bus => (
-              <div key={bus.id} className="border dark:border-gray-600 rounded-xl p-4 flex flex-col md:flex-row justify-between items-center bg-gray-50 dark:bg-gray-700/50 hover:shadow-md transition">
-                <div>
-                  <h3 className="font-bold text-lg">{bus.operator}</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{bus.type}</p>
+          {buses.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500 mb-4">No buses found in MongoDB yet.</p>
+              <button onClick={setupTestDatabase} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 mx-auto shadow-lg hover:bg-green-700 transition">
+                <Database size={18} /> Initialize Test Bus in DB
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {buses.map(bus => (
+                <div key={bus._id} className="border dark:border-gray-600 rounded-xl p-4 flex flex-col md:flex-row justify-between items-center bg-gray-50 dark:bg-gray-700/50 hover:shadow-md transition">
+                  <div>
+                    <h3 className="font-bold text-lg">{bus.operator}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{bus.route}</p>
+                  </div>
+                  <div className="text-right flex flex-col items-end gap-2 my-4 md:my-0">
+                    <p className="text-2xl font-black text-red-600">₹{bus.price}</p>
+                    <button onClick={() => handleSelectBus(bus)} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded font-bold">
+                      View Seats
+                    </button>
+                  </div>
                 </div>
-                <div className="text-center my-4 md:my-0">
-                  <p className="font-bold text-xl">{bus.time}</p>
-                  <p className="text-xs text-gray-500">{bus.duration}</p>
-                </div>
-                <div className="text-right flex flex-col items-end gap-2">
-                  <p className="text-2xl font-black text-red-600">₹{bus.price}</p>
-                  <p className="text-xs text-green-600 font-bold">{bus.seatsLeft} Seats Left</p>
-                  <button onClick={() => handleSelectBus(bus)} className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded font-bold">
-                    View Seats
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* STEP 3: SEAT SELECTION */}
+      {/* STEP 3: SEAT SELECTION (Reads Booked Seats from DB) */}
       {step === 'seats' && (
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
@@ -144,8 +187,11 @@ export default function RoutePlanner() {
                 <div className="absolute top-4 right-4 text-xs font-bold text-gray-400">DRIVER</div>
                 {Array.from({length: 20}).map((_, i) => {
                   const seatNum = `S${i+1}`;
-                  const isOccupied = i === 2 || i === 7 || i === 12;
+                  
+                  // CHECK MONGODB DATA: Is this seat inside the bookedSeats array?
+                  const isOccupied = selectedBus?.bookedSeats?.includes(seatNum);
                   const isSelected = selectedSeat === seatNum;
+                  
                   return (
                     <button 
                       key={seatNum} 
@@ -153,7 +199,7 @@ export default function RoutePlanner() {
                       onClick={() => handleSeatSelect(seatNum)}
                       className={`h-12 w-12 rounded flex items-center justify-center font-bold text-sm transition-colors ${
                         isOccupied ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed' 
-                        : isSelected ? 'bg-green-500 text-white' 
+                        : isSelected ? 'bg-green-500 text-white shadow-md' 
                         : 'bg-white dark:bg-gray-800 border-2 border-green-500 hover:bg-green-100 dark:hover:bg-green-900 cursor-pointer'
                       }`}
                     >
@@ -167,7 +213,7 @@ export default function RoutePlanner() {
             <div className="w-full md:w-1/3 bg-gray-50 dark:bg-gray-700/50 p-6 rounded-xl border dark:border-gray-600 h-fit">
               <h3 className="font-bold text-lg border-b dark:border-gray-600 pb-2 mb-4">Journey Summary</h3>
               <p className="font-bold">{selectedBus?.operator}</p>
-              <p className="text-sm text-gray-500 mb-4">{startLoc} → {endLoc}</p>
+              <p className="text-sm text-gray-500 mb-4">{selectedBus?.route}</p>
               
               <div className="flex justify-between mb-2">
                 <span>Selected Seat:</span>
@@ -178,7 +224,7 @@ export default function RoutePlanner() {
                 <span className="text-red-600">₹{selectedSeat ? selectedBus?.price : '0'}</span>
               </div>
               
-              <button onClick={handleCheckout} disabled={!selectedSeat} className={`w-full py-3 rounded font-bold text-white transition-colors ${selectedSeat ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-400 cursor-not-allowed'}`}>
+              <button onClick={handleCheckout} disabled={!selectedSeat} className={`w-full py-3 rounded font-bold text-white transition-colors ${selectedSeat ? 'bg-red-600 hover:bg-red-700 shadow-md' : 'bg-gray-400 cursor-not-allowed'}`}>
                 Proceed to Book
               </button>
             </div>
@@ -198,7 +244,7 @@ export default function RoutePlanner() {
           </div>
 
           <button onClick={processPayment} disabled={isProcessing} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex justify-center items-center gap-2">
-            {isProcessing ? 'Processing Transaction...' : `Pay ₹${selectedBus?.price} Securely`}
+            {isProcessing ? 'Saving to MongoDB...' : `Pay ₹${selectedBus?.price} Securely`}
           </button>
           <button onClick={() => setStep('seats')} className="w-full mt-4 text-gray-500 hover:underline">Cancel</button>
         </div>
@@ -209,7 +255,7 @@ export default function RoutePlanner() {
         <div className="p-12 text-center flex flex-col items-center">
           <CheckCircle2 size={80} className="text-green-500 mb-6" />
           <h2 className="text-3xl font-black mb-2">Booking Confirmed!</h2>
-          <p className="text-gray-500 mb-8">Your ticket details have been sent to your email and phone.</p>
+          <p className="text-gray-500 mb-8">Seat {selectedSeat} has been successfully saved to MongoDB.</p>
           
           <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-xl border border-dashed border-gray-300 dark:border-gray-600 w-full max-w-md text-left">
             <div className="flex justify-between border-b pb-2 mb-2 dark:border-gray-600">
@@ -218,7 +264,7 @@ export default function RoutePlanner() {
             </div>
             <div className="flex justify-between mb-1">
               <span className="text-gray-500">Route:</span>
-              <span className="font-bold">{startLoc} to {endLoc}</span>
+              <span className="font-bold">{selectedBus?.route}</span>
             </div>
             <div className="flex justify-between mb-1">
               <span className="text-gray-500">Bus:</span>
@@ -230,7 +276,7 @@ export default function RoutePlanner() {
             </div>
           </div>
 
-          <button onClick={() => { setStep('search'); setSelectedSeat(null); setSelectedBus(null); }} className="mt-8 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold">
+          <button onClick={() => { setStep('search'); setSelectedSeat(null); setSelectedBus(null); }} className="mt-8 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold shadow-lg">
             Book Another Ticket
           </button>
         </div>
