@@ -1,112 +1,237 @@
-import { useState, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { AppContext } from '../App';
 import { motion } from 'framer-motion';
-import { Star, ShieldCheck, ThumbsUp, MessageSquare, Flag } from 'lucide-react';
-
-const i18n = {
-  en: { title: 'Verified Traveler Reviews', post: 'Post Review', placeholder: 'Share your journey experience... (min 20 characters)', rules: 'Only verified users can post. Ratings cannot be changed after 24h.' },
-  hi: { title: 'सत्यापित यात्री समीक्षाएं', post: 'समीक्षा पोस्ट करें', placeholder: 'अपनी यात्रा का अनुभव साझा करें... (कम से कम 20 अक्षर)', rules: 'केवल सत्यापित उपयोगकर्ता पोस्ट कर सकते हैं। 24 घंटे के बाद रेटिंग नहीं बदली जा सकती।' }
-};
-
-const initialPosts = [
-  { id: 1, user: 'Alex Chen', verified: true, rating: 5, text: 'Absolutely fantastic journey from Seattle to Portland. The Wi-Fi actually worked the whole time and the seats were spacious.', upvotes: 24, time: '2h ago' },
-  { id: 2, user: 'Maria Garcia', verified: true, rating: 4, text: 'Good trip overall, but we departed 15 minutes late. The driver was very professional and made up for lost time safely.', upvotes: 8, time: '5h ago' }
-];
+import { Star, ShieldCheck, ThumbsUp, MessageSquare, Flag, Share2, Image as ImageIcon, Sparkles, Filter } from 'lucide-react';
 
 export default function CommunityFeed() {
   const { lang } = useContext(AppContext);
-  const t = i18n[lang];
-  
-  const [posts, setPosts] = useState(initialPosts);
-  const [newText, setNewText] = useState('');
-  const [rating, setRating] = useState(5);
 
-  const handlePost = () => {
-    if (newText.length < 20) {
-      alert(lang === 'en' ? 'Review must be at least 20 characters.' : 'समीक्षा कम से कम 20 अक्षरों की होनी चाहिए।');
-      return;
-    }
-    const post = {
-      id: Date.now(),
-      user: 'You',
-      verified: true,
-      rating: rating,
-      text: newText,
-      upvotes: 0,
-      time: 'Just now'
-    };
-    setPosts([post, ...posts]);
-    setNewText('');
-    setRating(5);
+  const [activeSubTab, setActiveSubTab] = useState('reviews'); // 'reviews' or 'forum'
+  const [reviewsData, setReviewsData] = useState({ reviews: [], avgRating: "5.0" });
+  const [posts, setPosts] = useState([]);
+  const [topicFilter, setTopicFilter] = useState('All');
+
+  // Review Form
+  const [pnrInput, setPnrInput] = useState('RB-99812');
+  const [routeInput, setRouteInput] = useState('New Delhi to Hyderabad');
+  const [rating, setRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+
+  // Forum Form
+  const [postTitle, setPostTitle] = useState('');
+  const [postContent, setPostContent] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [postTopic, setPostTopic] = useState('Travel Advice');
+
+  useEffect(() => {
+    fetchReviews();
+    fetchPosts();
+  }, [topicFilter]);
+
+  const fetchReviews = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/reviews');
+      const data = await res.json();
+      if (data.reviews) setReviewsData(data);
+    } catch (e) { console.error(e); }
   };
 
-  const handleUpvote = (id) => {
-    setPosts(posts.map(p => p.id === id ? { ...p, upvotes: p.upvotes + 1 } : p));
+  const fetchPosts = async () => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/community/posts?topic=${topicFilter}`);
+      const data = await res.json();
+      if (Array.isArray(data)) setPosts(data);
+    } catch (e) { console.error(e); }
+  };
+
+  const submitReview = async () => {
+    if (reviewText.length < 20) return alert("Review must be at least 20 characters long.");
+    try {
+      const res = await fetch('http://localhost:5000/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: "Obed Ganta", pnr: pnrInput, route: routeInput, rating, text: reviewText })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert("Verified Journey Review Published!");
+        setReviewText('');
+        fetchReviews();
+      } else {
+        alert("Error: " + data.error);
+      }
+    } catch (e) { alert("Server error."); }
+  };
+
+  const submitForumPost = async () => {
+    if (!postTitle || !postContent) return alert("Title and Content are required.");
+    try {
+      const res = await fetch('http://localhost:5000/api/community/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: "Obed Ganta", isVerified: true, topic: postTopic, title: postTitle, content: postContent, photoUrl })
+      });
+      if (res.ok) {
+        alert("Post shared with community!");
+        setPostTitle(''); setPostContent(''); setPhotoUrl('');
+        fetchPosts();
+      }
+    } catch (e) { alert("Failed to post."); }
+  };
+
+  const handleLike = async (id) => {
+    await fetch(`http://localhost:5000/api/community/posts/${id}/like`, { method: 'POST' });
+    fetchPosts();
+  };
+
+  const handleReportPost = async (id) => {
+    await fetch(`http://localhost:5000/api/community/posts/${id}/report`, { method: 'POST' });
+    alert("Content reported for safety review.");
+  };
+
+  const handleSocialShare = (title) => {
+    if (navigator.share) {
+      navigator.share({ title: "RedBus Pro Travel Community", text: title, url: window.location.href });
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      alert("External share link copied to clipboard!");
+    }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       
-      {/* Post Creation Area */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border dark:border-gray-700">
-        <h2 className="text-xl font-bold mb-4">{t.title}</h2>
-        <div className="flex gap-2 mb-4">
-          {[1,2,3,4,5].map(star => (
-            <Star key={star} onClick={() => setRating(star)} className={`cursor-pointer ${star <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-600'}`} size={28} />
-          ))}
-        </div>
-        <textarea 
-          value={newText} onChange={(e) => setNewText(e.target.value)}
-          placeholder={t.placeholder}
-          className="w-full p-4 bg-gray-50 dark:bg-gray-900 border dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-red-500 resize-none h-32 transition"
-        />
-        <div className="mt-4 flex justify-between items-center">
-          <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1"><ShieldCheck size={14}/> {t.rules}</p>
-          <button onClick={handlePost} className="bg-gray-900 dark:bg-red-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-black dark:hover:bg-red-700 transition">
-            {t.post}
-          </button>
-        </div>
+      {/* Sub-Navigation Switcher */}
+      <div className="flex justify-center border-b dark:border-gray-700 pb-4 gap-6">
+        <button onClick={() => setActiveSubTab('reviews')} className={`text-lg font-bold pb-1 ${activeSubTab === 'reviews' ? 'text-red-600 border-b-2 border-red-600' : 'text-gray-500'}`}>
+          Task 6: Verified Journey Reviews (Avg ⭐ {reviewsData.avgRating})
+        </button>
+        <button onClick={() => setActiveSubTab('forum')} className={`text-lg font-bold pb-1 ${activeSubTab === 'forum' ? 'text-red-600 border-b-2 border-red-600' : 'text-gray-500'}`}>
+          Task 1: Traveler Stories & Discussion Boards
+        </button>
       </div>
 
-      {/* Feed Area */}
-      <div className="space-y-4">
-        {posts.map((post) => (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} key={post.id} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border dark:border-gray-700">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 font-bold text-lg">
-                  {post.user.charAt(0)}
-                </div>
-                <div>
-                  <div className="font-bold flex items-center gap-1">
-                    {post.user} {post.verified && <ShieldCheck size={16} className="text-green-500" />}
+      {/* TASK 6 SECTION */}
+      {activeSubTab === 'reviews' && (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md border dark:border-gray-700">
+            <h3 className="font-bold text-lg mb-2 flex items-center gap-2 text-green-600">
+              <ShieldCheck /> Rate Your Completed Journey
+            </h3>
+            <p className="text-xs text-gray-400 mb-4">Feedback is strictly limited to verified travelers with completed PNRs.</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <input type="text" value={pnrInput} onChange={e => setPnrInput(e.target.value)} placeholder="Completed PNR Number" className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl outline-none border" />
+              <input type="text" value={routeInput} onChange={e => setRouteInput(e.target.value)} placeholder="Bus Route" className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl outline-none border" />
+            </div>
+
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm font-bold">Your Rating:</span>
+              {[1, 2, 3, 4, 5].map(star => (
+                <Star key={star} onClick={() => setRating(star)} className={`cursor-pointer ${star <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} size={24} />
+              ))}
+            </div>
+
+            <textarea value={reviewText} onChange={e => setReviewText(e.target.value)} placeholder="Write your genuine travel experience (minimum 20 characters)..." className="w-full p-3 bg-gray-50 dark:bg-gray-700 rounded-xl border outline-none h-24 mb-4" />
+            
+            <button onClick={submitReview} className="bg-red-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-red-700 transition">
+              Submit Verified Review
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {reviewsData.reviews.map(rev => (
+              <div key={rev._id} className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border dark:border-gray-700">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="font-bold flex items-center gap-1">{rev.user} <ShieldCheck size={16} className="text-green-500" /></span>
+                    <p className="text-xs text-gray-400">PNR: {rev.pnr} | Route: {rev.route}</p>
                   </div>
-                  <div className="text-xs text-gray-500">{post.time}</div>
+                  <div className="flex text-yellow-400 font-bold">⭐ {rev.rating}/5</div>
+                </div>
+                <p className="mt-3 text-gray-700 dark:text-gray-300">{rev.text}</p>
+                <div className="mt-3 text-xs text-gray-400 flex justify-between">
+                  <span>Editable within 24 hours of posting</span>
+                  <button onClick={() => fetch(`http://localhost:5000/api/reviews/${rev._id}/report`, { method: 'POST' }).then(() => fetchReviews())} className="text-red-500 hover:underline flex items-center gap-1">
+                    <Flag size={12} /> Report
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-1">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} size={16} className={i < post.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300 dark:text-gray-700'} />
-                ))}
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TASK 1 SECTION */}
+      {activeSubTab === 'forum' && (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-md border dark:border-gray-700">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Sparkles className="text-red-600" /> Share Travel Story, Tips & Photos</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <input type="text" value={postTitle} onChange={e => setPostTitle(e.target.value)} placeholder="Discussion Title" className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl outline-none border" />
+              <select value={postTopic} onChange={e => setPostTopic(e.target.value)} className="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl outline-none border">
+                <option value="Routes">Routes Discussion</option>
+                <option value="Destinations">Destinations Advice</option>
+                <option value="Travel Advice">General Travel Tips</option>
+              </select>
+            </div>
+
+            <textarea value={postContent} onChange={e => setPostContent(e.target.value)} placeholder="Write story or tip details..." className="w-full p-3 bg-gray-50 dark:bg-gray-700 rounded-xl border outline-none h-24 mb-4" />
+            
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+              <input type="text" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)} placeholder="Cloud Image/Photo URL (e.g., https://images.unsplash.com/...)" className="w-full md:w-2/3 p-3 bg-gray-50 dark:bg-gray-700 rounded-xl outline-none border text-sm" />
+              <button onClick={submitForumPost} className="w-full md:w-auto bg-gray-900 dark:bg-red-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-black transition">
+                Publish Post
+              </button>
+            </div>
+          </div>
+
+          {/* Topic Board Filter */}
+          <div className="flex items-center gap-3 overflow-x-auto pb-2">
+            <Filter size={18} className="text-gray-400" />
+            {['All', 'Routes', 'Destinations', 'Travel Advice'].map(topic => (
+              <button key={topic} onClick={() => setTopicFilter(topic)} className={`px-4 py-1.5 rounded-full text-sm font-bold transition ${topicFilter === topic ? 'bg-red-600 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                {topic}
+              </button>
+            ))}
+          </div>
+
+          {/* Forum List */}
+          <div className="space-y-4">
+            {posts.map(post => (
+              <div key={post._id} className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border dark:border-gray-700">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-xs font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-600 px-3 py-1 rounded-full">{post.topic}</span>
+                  <span className="text-xs text-gray-400">{new Date(post.createdAt).toLocaleDateString()}</span>
+                </div>
+
+                <h4 className="text-xl font-bold mb-2">{post.title}</h4>
+                <p className="text-gray-700 dark:text-gray-300 mb-4">{post.content}</p>
+
+                {post.photoUrl && (
+                  <img src={post.photoUrl} alt="Travel Photo" className="w-full h-64 object-cover rounded-xl mb-4 border dark:border-gray-700" />
+                )}
+
+                <div className="flex justify-between items-center border-t dark:border-gray-700 pt-4 text-sm text-gray-500">
+                  <div className="flex items-center gap-6">
+                    <button onClick={() => handleLike(post._id)} className="flex items-center gap-1 hover:text-red-600 font-bold">
+                      <ThumbsUp size={18} /> {post.likes} Likes
+                    </button>
+                    <button onClick={() => handleSocialShare(post.title)} className="flex items-center gap-1 hover:text-blue-600 font-bold">
+                      <Share2 size={18} /> Social Share
+                    </button>
+                  </div>
+                  <button onClick={() => handleReportPost(post._id)} className="text-red-500 hover:underline flex items-center gap-1">
+                    <Flag size={14} /> Report
+                  </button>
+                </div>
               </div>
-            </div>
-            
-            <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">{post.text}</p>
-            
-            <div className="flex gap-6 border-t dark:border-gray-700 pt-4">
-              <button onClick={() => handleUpvote(post.id)} className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition">
-                <ThumbsUp size={18} /> {post.upvotes} Helpful
-              </button>
-              <button className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900 dark:hover:text-white transition">
-                <MessageSquare size={18} /> Comment
-              </button>
-              <button className="flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-red-500 ml-auto transition">
-                <Flag size={18} /> Report
-              </button>
-            </div>
-          </motion.div>
-        ))}
-      </div>
+            ))}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
