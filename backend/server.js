@@ -12,7 +12,6 @@ app.use(express.json());
 // MONGODB CONNECTION
 // ==========================================
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://obedganta_db_user:Obedganta15@cluster0.xuwqxth.mongodb.net/redbus?appName=Cluster0";
-const [passengerEmail, setPassengerEmail] = useState('');
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected: All Task Models Ready"))
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
@@ -160,7 +159,6 @@ app.post('/api/reviews', async (req, res) => {
   try {
     const { user, pnr, route, rating, text } = req.body;
     
-    // Check journey completion
     const booking = await BusBooking.findOne({ pnr });
     if (!booking || booking.status !== 'completed') {
       return res.status(400).json({ error: "Reviews can only be submitted for completed journeys verified by PNR." });
@@ -168,14 +166,12 @@ app.post('/api/reviews', async (req, res) => {
     if (booking.hasReviewed) {
       return res.status(400).json({ error: "You have already submitted a review for this journey." });
     }
-
     if (text.length < 20) {
       return res.status(400).json({ error: "Reviews must be at least 20 characters long." });
     }
 
     const review = new Review({ user, pnr, route, rating, text, verifiedJourney: true });
     await review.save();
-
     booking.hasReviewed = true;
     await booking.save();
 
@@ -188,7 +184,6 @@ app.put('/api/reviews/:id', async (req, res) => {
     const review = await Review.findById(req.params.id);
     if (!review) return res.status(404).json({ error: "Review not found" });
 
-    // Enforce 24-Hour Edit Window Constraint
     const hoursElapsed = (Date.now() - new Date(review.createdAt).getTime()) / (1000 * 60 * 60);
     if (hoursElapsed > 24) {
       return res.status(400).json({ error: "Review edit window (24 hours) has expired." });
@@ -205,7 +200,7 @@ app.post('/api/reviews/:id/report', async (req, res) => {
   try {
     const review = await Review.findById(req.params.id);
     review.reportCount += 1;
-    if (review.reportCount >= 2) review.hidden = true; // Auto-hide if reported multiple times
+    if (review.reportCount >= 2) review.hidden = true; 
     await review.save();
     res.json({ message: review.hidden ? "Review hidden due to safety policy." : "Review reported." });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -267,7 +262,9 @@ app.get('/api/buses', async (req, res) => {
 
 app.post('/api/book-seat', async (req, res) => {
   try {
-    const { pnr, route, operator, seatNumber, passengerName } = req.body;
+    // 1. Extract passengerEmail from the incoming frontend request
+    const { pnr, route, operator, seatNumber, passengerName, passengerEmail } = req.body;
+    
     const newBooking = new BusBooking({
       pnr, route, operator, seatNumber, passengerName, status: 'completed', hasReviewed: false
     });
@@ -278,13 +275,27 @@ app.post('/api/book-seat', async (req, res) => {
     // ==========================================
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: { user: 'redbuspro.test@gmail.com', pass: 'your-app-password' } 
+      auth: { 
+        user: 'gantaobed@gmail.com',         // ⚠️ REPLACE THIS
+        pass: 'qngo hnoy pgsx wtgn'   // ⚠️ REPLACE THIS
+      } 
     });
 
-    // Log the email action to the server console to prove it works to the evaluator
-    console.log(`\n📧 [EMAIL SYSTEM]: Triggering booking confirmation email...`);
-    console.log(`📧 [EMAIL SYSTEM]: Sending PNR ${pnr} to passenger ${passengerName}`);
-    console.log(`📧 [EMAIL SYSTEM]: Email successfully dispatched via SMTP.\n`);
+    const mailOptions = {
+      from: 'gantaobed@gmail.com',           // ⚠️ REPLACE THIS
+      to: passengerEmail,                     // This dynamically sends to the passenger's email address
+      subject: `RedBus Pro: Booking Confirmed (PNR: ${pnr})`,
+      text: `Hello ${passengerName},\n\nYour bus ticket for ${route} has been successfully booked with ${operator}.\n\nYour Seat Number is: ${seatNumber}\nYour PNR is: ${pnr}\n\nSafe travels!\n- RedBus Pro Team`
+    };
+
+    // Send the actual email
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.log("❌ Email failed to send:", error);
+      } else {
+        console.log(`\n✅ REAL EMAIL SENT TO PASSENGER (${passengerEmail}): ` + info.response + `\n`);
+      }
+    });
 
     res.json(newBooking);
   } catch (err) { res.status(500).json({ error: err.message }); }

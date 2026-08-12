@@ -13,6 +13,9 @@ export default function RoutePlanner() {
   const [selectedBus, setSelectedBus] = useState(null);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [bookedPnr, setBookedPnr] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [passengerName, setPassengerName] = useState('');
+  const [passengerEmail, setPassengerEmail] = useState('');
 
   // TASK 4: Real Map Coordinates for Routing Polyline
   const delhiCoords = [28.6139, 77.2090];
@@ -23,23 +26,42 @@ export default function RoutePlanner() {
     fetch('http://localhost:5000/api/buses').then(res => res.json()).then(data => setBuses(data));
   }, []);
 
-  const processPayment = async () => {
+ const processPayment = async () => {
+    // 1. Force the user to fill out their details before booking
+    if (!passengerName || !passengerEmail) {
+      return alert("Please enter both the Passenger Name and Email Address.");
+    }
+
+    setIsProcessing(true);
     const newPnr = "RB-" + Math.floor(10000 + Math.random() * 90000); 
+    
     try {
       const res = await fetch('http://localhost:5000/api/book-seat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pnr: newPnr, route: `${startLoc} to ${endLoc}`, operator: selectedBus.operator, seatNumber: selectedSeat, passengerName: "Obed Ganta" })
+        body: JSON.stringify({ 
+          pnr: newPnr, 
+          route: `${startLoc} to ${endLoc}`, 
+          operator: selectedBus.operator, 
+          seatNumber: selectedSeat, 
+          
+          // 2. Send the typed name and email to the backend
+          passengerName: passengerName, 
+          passengerEmail: passengerEmail 
+        })
       });
+
       if (res.ok) {
         setBookedPnr(newPnr);
         setStep('success');
-        // TASK 2: Trigger Real-time automated notification
         triggerNotification('Booking Confirmed!', `Seat ${selectedSeat} on ${selectedBus.operator}. PNR: ${newPnr}`);
       }
-    } catch (e) { alert("Error saving to DB."); }
+    } catch (e) { 
+      alert("Error saving to DB."); 
+    } finally {
+      setIsProcessing(false);
+    }
   };
-
   const mapUrl = isDark ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   return (
@@ -111,10 +133,37 @@ export default function RoutePlanner() {
       )}
 
       {step === 'checkout' && (
-        <div className="p-8 max-w-lg mx-auto text-center space-y-4">
+        <div className="p-8 max-w-lg mx-auto text-center space-y-6">
           <CreditCard size={48} className="text-red-600 mx-auto" />
           <h2 className="text-2xl font-bold">{t('book')}</h2>
-          <button onClick={processPayment} className="w-full bg-green-600 text-white font-bold py-3.5 rounded-xl">{t('book')}</button>
+          
+          <div className="space-y-4 text-left">
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase ml-1">Passenger Full Name</label>
+              <input 
+                type="text" 
+                placeholder="e.g. John Doe" 
+                value={passengerName}
+                onChange={(e) => setPassengerName(e.target.value)}
+                className="w-full p-3 mt-1 bg-gray-50 dark:bg-gray-700 rounded-xl border outline-none focus:border-red-500"
+              />
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase ml-1">Email Address</label>
+              <input 
+                type="email" 
+                placeholder="e.g. passenger@email.com" 
+                value={passengerEmail}
+                onChange={(e) => setPassengerEmail(e.target.value)}
+                className="w-full p-3 mt-1 bg-gray-50 dark:bg-gray-700 rounded-xl border outline-none focus:border-red-500"
+              />
+            </div>
+          </div>
+
+          <button onClick={processPayment} disabled={isProcessing} className="w-full bg-green-600 text-white font-bold py-3.5 rounded-xl hover:bg-green-700 transition disabled:opacity-50">
+            {isProcessing ? 'Processing Ticket...' : t('book')}
+          </button>
         </div>
       )}
 
