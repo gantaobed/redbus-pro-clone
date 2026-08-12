@@ -1,7 +1,10 @@
-const nodemailer = require('nodemailer');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 require('dotenv').config();
 
 const app = express();
@@ -12,15 +15,34 @@ app.use(express.json());
 // MONGODB CONNECTION
 // ==========================================
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://obedganta_db_user:Obedganta15@cluster0.xuwqxth.mongodb.net/redbus?appName=Cluster0";
+
 mongoose.connect(MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected: All Task Models Ready"))
+  .then(() => console.log("✅ MongoDB Connected: Commercial Schemas Ready"))
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
 // ==========================================
-// SCHEMAS & MODELS
+// CLOUDINARY CONFIGURATION (TASK 1)
+// ==========================================
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'demo',
+  api_key: process.env.CLOUDINARY_API_KEY || '123456789',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'secret'
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'redbus_community_photos',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp']
+  }
+});
+const upload = multer({ storage: storage });
+
+// ==========================================
+// MONGODB SCHEMAS & MODELS
 // ==========================================
 
-// Task 1 & Task 6: Community & Verified Journey Reviews
+// Task 1 & Task 6: Reviews & Forum Schemas
 const reviewSchema = new mongoose.Schema({
   user: { type: String, required: true },
   pnr: { type: String, required: true },
@@ -47,18 +69,19 @@ const communityPostSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Task 2: Advanced Notifications & Preferences
+// Task 2: Advanced Notification Schema
 const notificationSchema = new mongoose.Schema({
   userId: { type: String, default: "user_default" },
   type: { type: String, enum: ['booking', 'cancellation', 'schedule', 'reminder', 'promo'], required: true },
-  title: { type: Object, required: true }, // Multilingual title {en, hi}
-  message: { type: Object, required: true }, // Multilingual message {en, hi}
+  title: { type: Object, required: true },
+  message: { type: Object, required: true },
   channel: { type: String, enum: ['email', 'push', 'in-app'], default: 'in-app' },
   status: { type: String, enum: ['delivered', 'pending', 'failed'], default: 'delivered' },
   read: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now }
 });
 
+// Task 3 & Task 5: User Preferences Schema
 const userPrefSchema = new mongoose.Schema({
   userId: { type: String, default: "user_default", unique: true },
   emailNotifs: { type: Boolean, default: true },
@@ -68,7 +91,7 @@ const userPrefSchema = new mongoose.Schema({
   theme: { type: String, default: "light" }
 });
 
-// Task 4: Saved Routes
+// Task 4: Saved Routes Schema
 const savedRouteSchema = new mongoose.Schema({
   userId: { type: String, default: "user_default" },
   startLoc: String,
@@ -79,13 +102,14 @@ const savedRouteSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Task 4 & 6: Bus Booking & Journey Tracking
+// Bus Booking Schema
 const busBookingSchema = new mongoose.Schema({
   pnr: { type: String, unique: true },
   route: String,
   operator: String,
   seatNumber: String,
   passengerName: String,
+  passengerEmail: String,
   status: { type: String, enum: ['upcoming', 'completed', 'cancelled'], default: 'completed' },
   hasReviewed: { type: Boolean, default: false },
   bookedAt: { type: Date, default: Date.now }
@@ -102,7 +126,17 @@ const BusBooking = mongoose.model('BusBooking', busBookingSchema);
 // REST API ENDPOINTS
 // ==========================================
 
-// --- TASK 1: Community Posts & Forums ---
+// --- TASK 1: Cloud Photo Upload Endpoint ---
+app.post('/api/upload', upload.single('photo'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No image file provided." });
+    res.json({ photoUrl: req.file.path });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- TASK 1: Community Posts & Discussions ---
 app.get('/api/community/posts', async (req, res) => {
   try {
     const { topic } = req.query;
@@ -142,7 +176,7 @@ app.post('/api/community/posts/:id/comment', async (req, res) => {
 app.post('/api/community/posts/:id/report', async (req, res) => {
   try {
     const post = await CommunityPost.findByIdAndUpdate(req.params.id, { $inc: { reports: 1 } }, { new: true });
-    res.json({ message: "Post reported for moderation.", post });
+    res.json({ message: "Post reported for moderation review.", post });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -150,7 +184,7 @@ app.post('/api/community/posts/:id/report', async (req, res) => {
 app.get('/api/reviews', async (req, res) => {
   try {
     const reviews = await Review.find({ hidden: false }).sort({ createdAt: -1 });
-    const avgRating = reviews.length ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : "N/A";
+    const avgRating = reviews.length ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : "5.0";
     res.json({ reviews, avgRating, total: reviews.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -172,6 +206,7 @@ app.post('/api/reviews', async (req, res) => {
 
     const review = new Review({ user, pnr, route, rating, text, verifiedJourney: true });
     await review.save();
+
     booking.hasReviewed = true;
     await booking.save();
 
@@ -184,6 +219,7 @@ app.put('/api/reviews/:id', async (req, res) => {
     const review = await Review.findById(req.params.id);
     if (!review) return res.status(404).json({ error: "Review not found" });
 
+    // Enforce 24-Hour Edit Window Constraint
     const hoursElapsed = (Date.now() - new Date(review.createdAt).getTime()) / (1000 * 60 * 60);
     if (hoursElapsed > 24) {
       return res.status(400).json({ error: "Review edit window (24 hours) has expired." });
@@ -211,6 +247,14 @@ app.get('/api/notifications', async (req, res) => {
   try {
     const list = await Notification.find().sort({ timestamp: -1 });
     res.json(list);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/notifications', async (req, res) => {
+  try {
+    const notif = new Notification(req.body);
+    await notif.save();
+    res.json(notif);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -246,14 +290,14 @@ app.post('/api/routes/saved', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- BOOKING ENGINE SEED & API ---
+// --- BUS BOOKINGS & SMTP NOTIFICATION DISPATCH ---
 app.get('/api/buses', async (req, res) => {
   try {
     let bookings = await BusBooking.find();
     if (bookings.length === 0) {
       bookings = await BusBooking.insertMany([
-        { pnr: "RB-99812", route: "New Delhi to Hyderabad", operator: "APSRTC Garuda Plus", seatNumber: "S4", passengerName: "Obed Ganta", status: "completed", hasReviewed: false },
-        { pnr: "RB-77123", route: "New Delhi to Vijayawada", operator: "TSRTC Super Luxury", seatNumber: "S10", passengerName: "Obed Ganta", status: "upcoming", hasReviewed: false }
+        { pnr: "RB-99812", route: "New Delhi to Hyderabad", operator: "APSRTC Garuda Plus", seatNumber: "S4", passengerName: "Obed Ganta", passengerEmail: "obed@example.com", status: "completed", hasReviewed: false },
+        { pnr: "RB-77123", route: "New Delhi to Vijayawada", operator: "TSRTC Super Luxury", seatNumber: "S10", passengerName: "Obed Ganta", passengerEmail: "obed@example.com", status: "upcoming", hasReviewed: false }
       ]);
     }
     res.json(bookings);
@@ -262,44 +306,51 @@ app.get('/api/buses', async (req, res) => {
 
 app.post('/api/book-seat', async (req, res) => {
   try {
-    // 1. Extract passengerEmail from the incoming frontend request
     const { pnr, route, operator, seatNumber, passengerName, passengerEmail } = req.body;
-    
     const newBooking = new BusBooking({
-      pnr, route, operator, seatNumber, passengerName, status: 'completed', hasReviewed: false
+      pnr, route, operator, seatNumber, passengerName, passengerEmail, status: 'completed', hasReviewed: false
     });
     await newBooking.save();
 
-    // ==========================================
-    // TASK 2: REAL EMAIL NOTIFICATION SYSTEM
-    // ==========================================
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { 
-        user: 'gantaobed@gmail.com',         // ⚠️ REPLACE THIS
-        pass: 'qngo hnoy pgsx wtgn'   // ⚠️ REPLACE THIS
-      } 
+    // Log Notification to Database
+    const notifLog = new Notification({
+      type: 'booking',
+      title: { en: 'Booking Confirmed!', hi: 'बुकिंग की पुष्टि की गई!' },
+      message: { en: `Seat ${seatNumber} on ${operator}. PNR: ${pnr}`, hi: `सीट ${seatNumber}, ${operator}. PNR: ${pnr}` },
+      channel: 'email',
+      status: 'delivered'
     });
+    await notifLog.save();
 
-    const mailOptions = {
-      from: 'gantaobed@gmail.com',           // ⚠️ REPLACE THIS
-      to: passengerEmail,                     // This dynamically sends to the passenger's email address
-      subject: `RedBus Pro: Booking Confirmed (PNR: ${pnr})`,
-      text: `Hello ${passengerName},\n\nYour bus ticket for ${route} has been successfully booked with ${operator}.\n\nYour Seat Number is: ${seatNumber}\nYour PNR is: ${pnr}\n\nSafe travels!\n- RedBus Pro Team`
-    };
+    // Real SMTP Email Dispatch via Nodemailer
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS
+        }
+      });
 
-    // Send the actual email
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.log("❌ Email failed to send:", error);
-      } else {
-        console.log(`\n✅ REAL EMAIL SENT TO PASSENGER (${passengerEmail}): ` + info.response + `\n`);
-      }
-    });
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: passengerEmail,
+        subject: `RedBus Pro: Booking Confirmed (PNR: ${pnr})`,
+        text: `Hello ${passengerName},\n\nYour bus ticket for ${route} has been successfully booked with ${operator}.\n\nSeat Number: ${seatNumber}\nPNR Number: ${pnr}\n\nThank you for choosing RedBus Pro!\nSafe Travels.`
+      };
+
+      transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+          console.log("❌ SMTP Dispatch Warning:", error.message);
+        } else {
+          console.log(`✅ Ticket Email Dispatched to ${passengerEmail}: ` + info.response);
+        }
+      });
+    }
 
     res.json(newBooking);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 RedBus Pro Backend API running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 RedBus Pro Commercial Backend API running on port ${PORT}`));
